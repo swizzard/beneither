@@ -1,6 +1,12 @@
 # BeNeither
 Code for [BeNeither](https://twitter.com/beneither)
 
+## What
+The basic idea is to search twitter for tweets that look like "i'm not a X i'm a Y".
+The strings are parsed with Spacy and then we do some fuzzy voodoo to find the things
+the tweet's author claims to (not) be. That gets dumped into the template string and
+sent out through the tubes.
+
 ## Prereqs
 This uses [spacy](https://spacy.io), so make sure you run
 `python -m spacy.en.download --force` before you try anything. See

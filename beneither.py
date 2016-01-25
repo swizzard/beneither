@@ -107,6 +107,7 @@ def run(client, nlp, wordfilter):
     while True:
         for tweet in assemble_tweets(antonyms):
             try:
+                print tweet  # should be daemonized, so who cares
                 client.update_status(**tweet)
             except Exception:
                 pass
@@ -114,7 +115,7 @@ def run(client, nlp, wordfilter):
                 time.sleep(2100)
         else:
             spans = retrieve_spans(client, nlp)
-            antonyms = get_antonyms(spans)
+            antonyms = get_antonyms(spans, wordfilter)
 
 
 if __name__ == '__main__':
