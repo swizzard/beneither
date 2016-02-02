@@ -1,4 +1,5 @@
 #!/home/ubuntu/beneither/venv/bin/python
+from datetime import datetime
 import json
 from random import randrange
 import re
@@ -8,6 +9,7 @@ import time
 from wordfilter import Wordfilter
 from spacy.en import English
 from twython import Twython
+from twython.exceptions import TwythonError
 
 
 
@@ -21,9 +23,13 @@ def get_client(cfg_path):
 
 
 def search(client, search_str):
-    res = client.search(q=search_str, include_entities=False, count=100,
-                        result_type='recent')
-    return [tweet['text'].lower() for tweet in res['statuses']]
+    try:
+        res = client.search(q=search_str, include_entities=False, count=100,
+                            result_type='recent')
+        return [tweet['text'].lower() for tweet in res['statuses']]
+    except TwythonError as err:
+        print '{} {}'.format(datetime.now(), err.message)
+        return []
 
 
 def get_spans(doc):
@@ -46,7 +52,7 @@ def get_spans(doc):
                     curr_head = nxt
             elif token.orth == comb_orth:
                 in_span = True
-                curr_head = nxt
+                curr_head = token
             elif curr_head not in {token.head, token.head.head, token, None}:
                 in_span = False
             if in_span:
@@ -93,29 +99,40 @@ def get_antonyms(spans, wordfilter):
     return ants
 
 
-def assemble_tweets(antonyms):
-    ants = []
-    while len(ants) < 2:
-        ants = [ant for ant in antonyms.pop(randrange(0, len(antonyms))) if ant]
+def assemble_tweets(antonyms, seen):
+    if len(antonyms) >= 2:
+        ants = []
+        while len(ants) < 2:
+            ants = [ant for ant in antonyms.pop(randrange(0, len(antonyms))) if ant]
+            if tuple(ants) in seen:
+                ants = []
+        else:
+            seen.add(tuple(ants))
+            yield {'status': 'Neither a {} nor a {} be'.format(*ants[:2])}
     else:
-        yield {'status': 'Neither a {} nor a {} be'.format(*ants[:2])}
+        raise StopIteration
 
 
 def run(client, nlp, wordfilter):
     spans = retrieve_spans(client, nlp)
     antonyms = get_antonyms(spans, wordfilter)
+    seen = set()
     while True:
-        for tweet in assemble_tweets(antonyms):
+        for tweet in assemble_tweets(antonyms, seen):
             try:
-                print tweet  # should be daemonized, so who cares
+                print '{}: tweet'.format(datetime.now())
                 client.update_status(**tweet)
-            except Exception:
-                pass
+            except Exception as err:
+                if 'Status is a duplicate' in err.message:
+                    print 'duplicate'
+                    continue
             else:
                 time.sleep(2100)
         else:
+            print 'reset'
             spans = retrieve_spans(client, nlp)
             antonyms = get_antonyms(spans, wordfilter)
+            seen = set()
 
 
 if __name__ == '__main__':
