@@ -29,8 +29,7 @@ def prep(tweet):
 
 def search(client, search_str):
     try:
-        res = client.search(q=search_str, include_entities=False, count=100,
-                            result_type='recent')
+        res = client.search(q=search_str, include_entities=False, count=100)
         return [prep(tweet) for tweet in res['statuses']]
     except TwythonError as err:
         print '{} {}'.format(datetime.now(), err.message)
@@ -65,66 +64,51 @@ def get_spans(doc):
     return spans
 
 
-def get_np(span):
-    mtch = re.match(r'i\'m.*?a ([\w\s+]+)', span.string)
-    if mtch:
-        return mtch.group(1)
-
-
 def retrieve_spans(client, nlp):
     return [get_spans(nlp(txt)) for txt in
             search(client, '"i\'m not a" "i\'m a"')]
 
 
 def get_antonyms(spans, wordfilter):
-    ants = []
-    for sp in spans:
-        nps = []
-        for span in sp:
-            np = get_np(span)
-            if np is not None:
-                np = np.strip()
-                if not wordfilter.blacklisted(np):
-                    nps.append(np)
-        if len(nps) >= 2:
-            ants.append(nps)
-    return ants
+    return set([tuple(span[:2]) for span in spans if not
+                any([wordfilter.blacklisted(seg) for seg in span]) and
+                len(span) >= 2 and not (span[0] == span[1])])
 
 
 def assemble_tweets(antonyms, seen):
-    if len(antonyms) >= 2:
-        ants = []
-        while len(ants) < 2:
-            ants = [ant for ant in antonyms.pop(randrange(0, len(antonyms))) if ant]
-            if tuple(ants) in seen:
-                ants = []
-        else:
+    antonyms = antonyms - seen
+    while antonyms:
+        ants = [ant.encode('ascii', 'ignore').strip() for ant in
+                antonyms.pop()]
+        if ants and tuple(ants) not in seen:
             seen.add(tuple(ants))
-            yield {'status': 'Neither a {} nor a {} be'.format(*ants[:2])}
+            yield {'status': 'Neither {} nor {} be'.format(*ants[:2])}
     else:
         raise StopIteration
 
 
-def run(client, nlp, wordfilter):
+def run(client, nlp, wordfilter, sleep_for=2100):
     spans = retrieve_spans(client, nlp)
     antonyms = get_antonyms(spans, wordfilter)
     seen = set()
     while True:
         for tweet in assemble_tweets(antonyms, seen):
             try:
-                print '{}: tweet'.format(datetime.now())
+                print '{}: {}'.format(datetime.now(), tweet)
                 client.update_status(**tweet)
             except Exception as err:
                 if 'Status is a duplicate' in err.message:
                     print 'duplicate'
                     continue
+                else:
+                    time.sleep(sleep_for)
             else:
-                time.sleep(2100)
+                time.sleep(sleep_for)
         else:
             print 'reset'
+            time.sleep(sleep_for)
             spans = retrieve_spans(client, nlp)
             antonyms = get_antonyms(spans, wordfilter)
-            seen = set()
 
 
 if __name__ == '__main__':
