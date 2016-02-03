@@ -22,54 +22,46 @@ def get_client(cfg_path):
                    oauth_token_secret=cfg['secret'])
 
 
+def prep(tweet):
+    txt = tweet['text'].lower()
+    return re.sub(r'^rt @[\w\d]+:?', '', txt)
+
+
 def search(client, search_str):
     try:
         res = client.search(q=search_str, include_entities=False, count=100,
                             result_type='recent')
-        return [tweet['text'].lower() for tweet in res['statuses']]
+        return [prep(tweet) for tweet in res['statuses']]
     except TwythonError as err:
         print '{} {}'.format(datetime.now(), err.message)
         return []
 
 
 def get_spans(doc):
-    get_max = lambda x: min(x + 1, len(doc) - 1)
-    not_username = lambda t: t.prefix != doc.vocab.strings['@']
     spans = []
-    curr_start = None
-    curr_end = 0
     in_span = False
-    curr_head = None
-    i_idx = doc.vocab.strings['i']
     be_orth = doc.vocab.strings["'m"]
-    comb_orth = doc.vocab.strings["i'm"]
-    for idx, token in enumerate(doc):
-        if not_username(token):
-            if token.lemma == i_idx:
-                nxt = doc[get_max(idx)]
-                if nxt.orth == be_orth:
-                    in_span = True
-                    curr_head = nxt
-            elif token.orth == comb_orth:
-                in_span = True
-                curr_head = token
-            elif curr_head not in {token.head, token.head.head, token, None}:
+    not_orth = doc.vocab.strings['not']
+    idx = 0
+    while idx < len(doc):
+        token = doc[idx]
+        if in_span:
+            span = doc[idx:token.head.right_edge.i + 1]
+            if span:
+                if span[-1].pos_ in ('CONJ', 'PUNCT'):
+                    span = span[:-1]
+                if span[0].orth == not_orth:
+                    span = span[1:]
+                spans.append(span.text)
+                idx = span[-1].i + 1
                 in_span = False
-            if in_span:
-                if curr_start is None:
-                    curr_start = idx
-                curr_end = idx
             else:
-                if curr_start is not None:
-                    end = get_max(curr_end)
-                    span = doc[curr_start:end]
-                    if span:
-                        spans.append(span)
-                    curr_start = None
-    if curr_start:
-        span = doc[curr_start:]
-        if span:
-            spans.append(span)
+                idx += 1
+                in_span = False
+        else:
+            if token.orth == be_orth:
+                in_span = True
+            idx += 1
     return spans
 
 
